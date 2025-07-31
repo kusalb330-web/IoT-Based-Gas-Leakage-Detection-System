@@ -1,0 +1,43 @@
+#include <WiFi.h>
+#include <HTTPClient.h>
+
+const char* ssid = "Kusal";        
+const char* password = "12345677"; 
+
+const char* receiverIP = "192.168.60.229"; // Change to receiver IP
+const int gasSensorPin = 34;              
+const int gasThreshold = 1200;
+
+void setup() {
+  Serial.begin(115200);
+  WiFi.begin(ssid, password);
+  Serial.print("Connecting to WiFi");
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(500);
+    Serial.print(".");
+  }
+  Serial.println("\n✅ Connected to WiFi");
+}
+
+void loop() {
+  int gasValue = analogRead(gasSensorPin);
+  Serial.println("Gas value: " + String(gasValue));
+
+  String status = (gasValue > gasThreshold) ? "EMERGENCY" : "SAFE";
+
+  if (WiFi.status() == WL_CONNECTED) {
+    HTTPClient http;
+    String url = "http://" + String(receiverIP) + "/receive";
+
+    http.begin(url);
+    http.addHeader("Content-Type", "application/x-www-form-urlencoded");
+
+    String postData = "gas_status=" + status + "&gas_value=" + String(gasValue);
+
+    int httpResponseCode = http.POST(postData);
+    Serial.println("POST Response: " + String(httpResponseCode));
+    http.end();
+  }
+
+  delay(3000); // 3 seconds delay
+}

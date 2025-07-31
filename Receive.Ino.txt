@@ -1,0 +1,129 @@
+#include <WiFi.h>
+#include <WebServer.h>
+#include <Wire.h>
+#include <Adafruit_SSD1306.h>
+
+// Wi-Fi details
+const char* ssid = "Kusal";
+const char* password = "12345677";
+
+// Pins
+#define BUZZER_PIN 27
+#define SCREEN_WIDTH 128
+#define SCREEN_HEIGHT 64
+#define OLED_RESET -1
+
+Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
+WebServer server(80);
+
+bool displayOk = false;
+String currentStatus = "UNKNOWN";
+int currentGasValue = 0;
+
+void setup() {
+  Serial.begin(115200);
+  pinMode(BUZZER_PIN, OUTPUT);
+  digitalWrite(BUZZER_PIN, LOW);
+
+  if (display.begin(SSD1306_SWITCHCAPVCC, 0x3C)) {
+    displayOk = true;
+    display.clearDisplay();
+    display.setTextSize(1);
+    display.setTextColor(WHITE);
+    display.setCursor(0, 0);
+    display.println("Receiver Booting...");
+    display.display();
+  }
+
+  WiFi.begin(ssid, password);
+  Serial.print("Connecting to Wi-Fi");
+
+  int retry = 0;
+  while (WiFi.status() != WL_CONNECTED && retry < 30) {
+    delay(500);
+    Serial.print(".");
+    retry++;
+  }
+
+  Serial.println();
+  if (WiFi.status() == WL_CONNECTED) {
+    Serial.println("✅ WiFi Connected");
+    Serial.println(WiFi.localIP());
+
+    if (displayOk) {
+      display.clearDisplay();
+      display.setCursor(0, 0);
+      display.println("WiFi Connected");
+      display.setCursor(0, 15);
+      display.println(WiFi.localIP());
+      display.display();
+    }
+
+    server.on("/", handleRootPage);
+    server.on("/receive", HTTP_POST, handlePostData);
+    server.begin();
+    Serial.println("HTTP server started");
+  } else {
+    Serial.println("❌ WiFi FAILED");
+    if (displayOk) {
+      display.clearDisplay();
+      display.setCursor(0, 0);
+      display.println("WiFi Failed!");
+      display.display();
+    }
+  }
+}
+
+void loop() {
+  server.handleClient();
+}
+
+void handlePostData() {
+  if (server.hasArg("gas_status") && server.hasArg("gas_value")) {
+    currentStatus = server.arg("gas_status");
+    currentGasValue = server.arg("gas_value").toInt();
+
+    Serial.println("Received Status: " + currentStatus);
+    Serial.println("Received Gas Value: " + String(currentGasValue));
+
+    digitalWrite(BUZZER_PIN, (currentStatus == "EMERGENCY") ? HIGH : LOW);
+
+    if (displayOk) {
+      display.clearDisplay();
+      display.setTextSize(1);
+      display.setCursor(0, 0);
+      display.print("Status: ");
+      display.println(currentStatus);
+      display.print("Gas: ");
+      display.println(currentGasValue);
+      display.display();
+    }
+
+    server.send(200, "text/plain", "Data received");
+  } else {
+    server.send(400, "text/plain", "Missing parameters");
+  }
+}
+
+void handleRootPage() {
+  String html = "<!DOCTYPE html><html><head><meta http-equiv='refresh' content='1'>";
+  html += "<title>Gas Status Monitor</title>";
+  html += "<style>body{font-family:Arial;text-align:center;margin-top:50px;} .safe{color:green;} .emergency{color:red;font-weight:bold;}</style>";
+  html += "</head><body>";
+  html += "<h1>Gas Monitoring System</h1>";
+
+  html += "<h2>Status: ";
+  if (currentStatus == "EMERGENCY") {
+    html += "<span class='emergency'>" + currentStatus + "</span>";
+  } else if (currentStatus == "SAFE") {
+    html += "<span class='safe'>" + currentStatus + "</span>";
+  } else {
+    html += currentStatus;
+  }
+  html += "</h2>";
+
+  html += "<h3>Gas Value: " + String(currentGasValue) + "</h3>";
+  html += "</body></html>";
+
+  server.send(200, "text/html", html);
+}
